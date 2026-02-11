@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>极简离线加密工具 - StatiCrypt版式</title>
+    <style>
+        body { font-family: system-ui; padding: 20px; background: #f0f2f5; line-height: 1.6; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 150px; margin: 10px 0; padding: 10px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 8px; }
+        input[type="password"], input[type="file"] { width: 100%; padding: 10px; margin-bottom: 20px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 8px; }
+        
+        .btn-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        button { background: #3498db; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; transition: 0.3s; }
+        button:hover { background: #2980b9; }
+        .secondary-btn { background: #95a5a6; }
+        
+        .result { margin-top: 20px; display: none; text-align: center; border-top: 2px dashed #eee; padding-top: 20px; }
+        .file-label { display: block; margin-bottom: 8px; font-weight: bold; }
+        .hint { font-size: 12px; color: #888; margin-top: -15px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>离线加密生成器</h2>
+        <p style="font-size: 13px; color: #666;">生成的加密网页将采用 StatiCrypt 经典版式（绿色背景+居中卡片）。</p>
+        
+        <label class="file-label">1. 选择或粘贴 HTML 内容:</label>
+        <div class="btn-group">
+            <button class="secondary-btn" onclick="document.getElementById('fileInput').click()">选择 HTML 文件</button>
+            <input type="file" id="fileInput" accept=".html,.htm,.txt" style="display:none" onchange="handleFileSelect(this)">
+        </div>
+        
+        <textarea id="content" placeholder="<html>...</html>"></textarea>
+        
+        <label class="file-label">2. 设置访问密码:</label>
+        <input type="password" id="password" placeholder="请输入访问密码" onkeydown="if(event.key === 'Enter') encryptData()">
+        <p class="hint">💡 输入密码后按回车键即可快速生成</p>
+        
+        <button id="encryptBtn" onclick="encryptData()">生成加密 HTML</button>
+
+        <div id="resultArea" class="result">
+            <p style="color: #27ae60; font-weight: bold;">✅ 加密完成！</p>
+            <button style="background: #27ae60;" onclick="downloadEncrypted()">立即下载加密后的 HTML</button>
+        </div>
+    </div>
+
+<script>
+let encryptedBlobUrl = null;
+
+function handleFileSelect(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        document.getElementById('content').value = e.target.result;
+        document.querySelector('.secondary-btn').innerText = "✅ 已导入: " + file.name;
+    };
+    reader.readAsText(file);
+}
+
+async function encryptData() {
+    const content = document.getElementById('content').value;
+    const password = document.getElementById('password').value;
+    const encryptBtn = document.getElementById('encryptBtn');
+
+    if(!content || !password) return alert("请先填写内容（或导入文件）并设置密码");
+
+    // UI 反馈：点击或回车后显示正在处理
+    encryptBtn.innerText = "正在加密...";
+    encryptBtn.style.background = "#bdc3c7";
+
+    try {
+        const enc = new TextEncoder();
+        const keyMaterial = await window.crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+        const salt = window.crypto.getRandomValues(new Uint8Array(16));
+        const key = await window.crypto.subtle.deriveKey(
+            { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+            keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt"]
+        );
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const encrypted = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, enc.encode(content));
+
+        const ciphertextArray = new Uint8Array(encrypted);
+        let binary = '';
+        for (let i = 0; i < ciphertextArray.byteLength; i++) {
+            binary += String.fromCharCode(ciphertextArray[i]);
+        }
+
+        const exportData = JSON.stringify({
+            ciphertext: btoa(binary),
+            iv: btoa(String.fromCodePoint(...iv)),
+            salt: btoa(String.fromCodePoint(...salt))
+        });
+
+        const finalHtml = `
+<!DOCTYPE html>
+<html class="staticrypt-html">
+    <head>
+        <meta charset="utf-8" />
+        <title>Protected Page</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+            .staticrypt-hr { margin-top: 20px; margin-bottom: 20px; border: 0; border-top: 1px solid #eee; }
+            .staticrypt-page { width: 360px; padding: 8% 0 0; margin: auto; box-sizing: border-box; }
+            .staticrypt-form { position: relative; z-index: 1; background: #ffffff; max-width: 360px; margin: 0 auto 100px; padding: 45px; text-align: center; box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.2), 0 5px 5px 0 rgba(0, 0, 0, 0.24); border-radius: 12px; }
+            .staticrypt-form input[type="password"] { background: #f2f2f2; border: 0; box-sizing: border-box; font-size: 14px; outline: 0; padding: 15px; width: 100%; border-radius: 12px; margin-bottom: 15px; }
+            .staticrypt-form .staticrypt-decrypt-button { text-transform: uppercase; outline: 0; background: #4CAF50; width: 100%; border: 0; padding: 15px; color: #ffffff; font-size: 14px; cursor: pointer; border-radius: 12px; font-weight: bold; }
+            .staticrypt-form .staticrypt-decrypt-button:hover { filter: brightness(92%); }
+            .staticrypt-html { height: 100%; }
+            .staticrypt-body { height: 100%; margin: 0; background: #76B852; font-family: "Arial", sans-serif; }
+            .staticrypt-instructions { margin-top: -1em; margin-bottom: 1em; }
+            .staticrypt-title { font-size: 1.5em; font-weight: bold; }
+            @media screen and (-webkit-min-device-pixel-ratio: 0) {
+                .staticrypt-form input[type="password"] {
+                    font-size: 16px;
+                }
+            }
+        </style>
+    </head>
+    <body class="staticrypt-body">
+        <div class="staticrypt-page">
+            <div class="staticrypt-form">
+                <div class="staticrypt-instructions">
+                    <p class="staticrypt-title">🔒 内容已加密</p>
+                    <p>请输入访问密码</p>
+                </div>
+                <hr class="staticrypt-hr" />
+                <input id="pw" type="password" placeholder="Password" onkeydown="if(event.key === 'Enter') decrypt()" autofocus />
+                <button class="staticrypt-decrypt-button" onclick="decrypt()">解密并查看</button>
+            </div>
+        </div>
+        <script>
+            const data = ${exportData};
+            async function decrypt() {
+                try {
+                    const pw = document.getElementById('pw').value;
+                    const enc = new TextEncoder();
+                    const keyMaterial = await window.crypto.subtle.importKey("raw", enc.encode(pw), "PBKDF2", false, ["deriveKey"]);
+                    const key = await window.crypto.subtle.deriveKey(
+                        { name: "PBKDF2", salt: Uint8Array.from(atob(data.salt), c => c.charCodeAt(0)), iterations: 100000, hash: "SHA-256" },
+                        keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+                    );
+                    const decrypted = await window.crypto.subtle.decrypt(
+                        { name: "AES-GCM", iv: Uint8Array.from(atob(data.iv), c => c.charCodeAt(0)) },
+                        key, Uint8Array.from(atob(data.ciphertext), c => c.charCodeAt(0))
+                    );
+                    document.open();
+                    document.write(new TextDecoder().decode(decrypted));
+                    document.close();
+                } catch(e) { alert("密码错误！"); }
+            }
+        <\/script>
+    </body>
+</html>`;
+
+        const blob = new Blob([finalHtml], { type: 'text/html' });
+        if (encryptedBlobUrl) URL.revokeObjectURL(encryptedBlobUrl);
+        encryptedBlobUrl = URL.createObjectURL(blob);
+        document.getElementById('resultArea').style.display = 'block';
+    } catch (err) {
+        alert("加密过程中出错，请重试");
+    } finally {
+        encryptBtn.innerText = "生成加密 HTML";
+        encryptBtn.style.background = "#3498db";
+    }
+}
+
+function downloadEncrypted() {
+    const a = document.createElement('a');
+    a.href = encryptedBlobUrl;
+    a.download = "encrypted_page.html";
+    a.click();
+}
+</script>
+</body>
+</html>
